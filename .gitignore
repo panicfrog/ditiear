@@ -157,4 +157,9 @@ Cargo.lock
 .history
 .ionide
 
+### tests ###
+tests/assets
+tests/asserts_blobs_rec
+tests/assets_blobs
+
 # End of https://www.toptal.com/developers/gitignore/api/macos,intellij+all,rust,visualstudiocode

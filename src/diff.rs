@@ -9,6 +9,7 @@ pub enum Patch {
     Replace{old_index: usize, new_index: usize, old_value: Vec<u8>, new_value: Vec<u8>},
 }
 
+#[allow(unreachable_code)]
 pub fn calculate_binary_diff(old: &[u8], new: &[u8]) -> Vec<Patch>{
     let ops = capture_diff_slices(Algorithm::Myers, old, new  );
     ops.iter().filter(|op| match op {
