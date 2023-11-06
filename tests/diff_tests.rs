@@ -16,3 +16,21 @@ fn test_calculate_file_hash() {
         Err(e) => panic!("{:?}", e)
     }
 }
+
+#[test]
+fn test_create_directory_blob_file_rec() {
+    match create_directory_blob_file_rec("./tests/asserts_blobs_rec", "./tests/assets" ) {
+        // Ok(h) => assert_eq!("58f7868004bf0343", h),
+        Ok(h) => println!("{}", h),
+        Err(e) => panic!("{:?}", e)
+    }
+}
+
+#[test]
+fn test_create_directory_blob_file() {
+    match create_directory_blob_file("./tests/assets_blobs", "./tests/assets" ) {
+        // Ok(h) => assert_eq!("58f7868004bf0343", h),
+        Ok(h) => println!("{}", h),
+        Err(e) => panic!("{:?}", e)
+    }
+}
