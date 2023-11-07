@@ -62,6 +62,7 @@ pub fn create_directory_blob_file<P: AsRef<Path>>(to_path: P, from_path: P) -> i
             for entry in fs::read_dir(&p)? {
                 let entry = entry?;
                 let path = entry.path();
+                // TODO: 过滤更多隐藏文件
                 if path.file_name().unwrap().to_str().unwrap() == ".DS_Store" {
                     continue;
                 }
@@ -89,48 +90,14 @@ pub fn create_directory_blob_file<P: AsRef<Path>>(to_path: P, from_path: P) -> i
                 //     return Err(io::Error::new(io::ErrorKind::Other, "not found"))
                 // }
             } else {
-                let hash = calculate_file_hash(&path)?;
-                let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
-                let (dir, name) = split_dir_and_name(&hash);
-                let p = &to_path.as_ref().join(dir);
-                if !p.exists() {
-                    fs::create_dir_all(p)?;
-                }
-                let p = &p.join(name);
-                if !p.exists() {
-                    fs::copy(&path, p)?;
-                }
-                let blob = DiffBlob {
-                    name: file_name,
-                    hash,
-                    blob_type: DiffBlobType::File,
-                };
-                entries.push(blob);
+                write_file_blob(&to_path, &mut entries, &path)?;
             }
         }
         if entries.is_empty() {
             continue;
         }
         entries.sort_by(|a, b| a.hash.cmp(&b.hash));
-        let mut hasher = XxHash64::default();
-        for blob in entries.iter() {
-            hasher.write(blob.to_string().as_bytes());
-        }
-        let hash = format!("{:x}", hasher.finish()) ;
-
-        // 5. write the content of the hashes to a file with name of the hash
-        let (dir, name) = split_dir_and_name(&hash);
-        let p = &to_path.as_ref().join(dir);
-        if !p.exists() {
-            fs::create_dir_all(p)?;
-        }
-        let p = &p.join(name);
-        if !p.exists() {
-            let mut file = File::create(p)?;
-            for blob in entries.iter() {
-                file.write_all(blob.to_string().as_bytes())?;
-            }
-        }
+        let hash = write_directory_blob(&to_path, &mut entries)?;
         resolved.insert(current_path.clone(), DiffBlob {
             name: current_path.file_name().unwrap().to_str().unwrap().to_string(),
             hash,
@@ -151,6 +118,7 @@ pub fn create_directory_blob_file_rec<P: AsRef<Path>>(to_path: P, from_path: P) 
     for entry in dir {
         let entry = entry?;
         let path = entry.path();
+        // TODO: 过滤更多隐藏文件
         if path.file_name().unwrap().to_str().unwrap() == ".DS_Store" {
             continue;
         }
@@ -164,23 +132,7 @@ pub fn create_directory_blob_file_rec<P: AsRef<Path>>(to_path: P, from_path: P) 
             };
             blobs.push(blob);
         } else {
-            let hash = calculate_file_hash(&path)?;
-            let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
-            let (dir, name) = split_dir_and_name(&hash);
-            let p = &to_path.as_ref().join(dir);
-            if !p.exists() {
-                fs::create_dir_all(p)?;
-            }
-            let p = &p.join(name);
-            if !p.exists() {
-                fs::copy(&path, p)?;
-            }
-            let blob = DiffBlob {
-                name: file_name,
-                hash,
-                blob_type: DiffBlobType::File,
-            };
-            blobs.push(blob);
+            write_file_blob(&to_path, &mut blobs, &path)?;
         }
     }
 
@@ -188,13 +140,16 @@ pub fn create_directory_blob_file_rec<P: AsRef<Path>>(to_path: P, from_path: P) 
     blobs.sort_by(|a, b| a.hash.cmp(&b.hash));
 
     // 4. calculate hash for all file hashes combined
+    write_directory_blob(&to_path, &mut blobs)
+}
+
+#[inline]
+fn write_directory_blob<P: AsRef<Path>>(to_path: &P, blobs: &mut Vec<DiffBlob>) -> io::Result<String> {
     let mut hasher = XxHash64::default();
     for blob in blobs.iter() {
         hasher.write(blob.to_string().as_bytes());
     }
-    let hash = format!("{:x}", hasher.finish()) ;
-
-    // 5. write the content of the hashes to a file with name of the hash
+    let hash = format!("{:x}", hasher.finish());
     let (dir, name) = split_dir_and_name(&hash);
     let p = &to_path.as_ref().join(dir);
     if !p.exists() {
@@ -210,4 +165,26 @@ pub fn create_directory_blob_file_rec<P: AsRef<Path>>(to_path: P, from_path: P) 
         }
     }
     Ok(hash)
+}
+
+#[inline]
+fn write_file_blob<P: AsRef<Path>>(to_path: &P, entries: &mut Vec<DiffBlob>, path: &PathBuf) -> io::Result<()> {
+    let hash = calculate_file_hash(&path)?;
+    let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+    let (dir, name) = split_dir_and_name(&hash);
+    let p = &to_path.as_ref().join(dir);
+    if !p.exists() {
+        fs::create_dir_all(p)?;
+    }
+    let p = &p.join(name);
+    if !p.exists() {
+        fs::copy(&path, p)?;
+    }
+    let blob = DiffBlob {
+        name: file_name,
+        hash,
+        blob_type: DiffBlobType::File,
+    };
+    entries.push(blob);
+    Ok(())
 }
