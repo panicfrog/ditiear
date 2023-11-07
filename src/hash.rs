@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::fs::File;
@@ -53,86 +53,93 @@ impl Display for DiffBlob {
 }
 
 pub fn create_directory_blob_file<P: AsRef<Path>>(to_path: P, from_path: P) -> io::Result<String> {
-    let mut entries_stack:Vec<(PathBuf, Vec<DiffBlob>)> = vec![(from_path.as_ref().to_path_buf(), Vec::new())];
+   let mut queue: VecDeque<PathBuf> =  VecDeque::new();
+    queue.push_back(from_path.as_ref().to_path_buf());
+    let mut directories = Vec::new();
+    while let Some(p) = queue.pop_front() {
+        if p.is_dir() {
+            directories.push(p.clone());
+            for entry in fs::read_dir(&p)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.file_name().unwrap().to_str().unwrap() == ".DS_Store" {
+                    continue;
+                }
+                if path.is_dir() {
+                    queue.push_back(path);
+                }
+            }
+        }
+    }
     let mut resolved: HashMap<PathBuf, DiffBlob> = HashMap::new();
-
-    while let Some((parent_path, mut entries)) = entries_stack.pop() {
-        let mut tem_entries_stack = vec![];
-        let mut need_update = false;
-        let mut all_resolved = true;
-        for entry in fs::read_dir(&parent_path)? {
+    while let Some(current_path) = directories.pop() {
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&current_path)? {
             let entry = entry?;
             let path = entry.path();
             if path.file_name().unwrap().to_str().unwrap() == ".DS_Store" {
                 continue;
             }
-            if let Some(e) = resolved.get(&path) {
-                continue;
+            if path.is_dir() {
+                if let Some(e) = resolved.get(&path) {
+                    entries.push(e.clone());
+                    resolved.remove(&path);
+                }
+                // else {
+                //     return Err(io::Error::new(io::ErrorKind::Other, "not found"))
+                // }
             } else {
-                if entry.path().is_dir() {
-                    tem_entries_stack.push((path.clone(), Vec::new()));
-                    all_resolved = false;
-                } else {
-                    let hash = calculate_file_hash(&path)?;
-                    let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
-                    let (dir, name) = split_dir_and_name(&hash);
-                    let p = &to_path.as_ref().join(dir);
-                    if !p.exists() {
-                        fs::create_dir_all(p)?;
-                    }
-                    let p = &p.join(name);
-                    if !p.exists() {
-                        fs::copy(&path, p)?;
-                    }
-                    let blob = DiffBlob {
-                        name: file_name,
-                        hash,
-                        blob_type: DiffBlobType::File,
-                    };
-                    resolved.insert(path.clone(), blob.clone());
-                    entries.push(blob);
-                    need_update = true;
+                let hash = calculate_file_hash(&path)?;
+                let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+                let (dir, name) = split_dir_and_name(&hash);
+                let p = &to_path.as_ref().join(dir);
+                if !p.exists() {
+                    fs::create_dir_all(p)?;
                 }
-                if !tem_entries_stack.is_empty() || need_update {
-                    entries_stack.push((parent_path.clone(), entries.clone()));
-                    if !tem_entries_stack.is_empty() {
-                        entries_stack.append(&mut tem_entries_stack);
-                    }
+                let p = &p.join(name);
+                if !p.exists() {
+                    fs::copy(&path, p)?;
                 }
+                let blob = DiffBlob {
+                    name: file_name,
+                    hash,
+                    blob_type: DiffBlobType::File,
+                };
+                entries.push(blob);
             }
         }
-        if all_resolved && parent_path.is_dir() && !entries.is_empty() {
-            let mut hasher = XxHash64::default();
-            entries.sort_by(|a, b| a.hash.cmp(&b.hash));
-            for blob in entries.iter() {
-                hasher.write(blob.to_string().as_bytes());
-            }
-            let hash = format!("{:x}", hasher.finish()) ;
-            let (dir, name) = split_dir_and_name(&hash);
+        if entries.is_empty() {
+            continue;
+        }
+        entries.sort_by(|a, b| a.hash.cmp(&b.hash));
+        let mut hasher = XxHash64::default();
+        for blob in entries.iter() {
+            hasher.write(blob.to_string().as_bytes());
+        }
+        let hash = format!("{:x}", hasher.finish()) ;
 
-            let p = &to_path.as_ref().join(dir);
-            if !p.exists() {
-                fs::create_dir_all(p)?;
-            }
-            let p = &p.join(name);
-            if !p.exists() {
-                let mut file = File::create(p)?;
-                for blob in entries.iter() {
-                    file.write_all(blob.to_string().as_bytes())?;
-                }
-            }
-            resolved.insert(parent_path.clone(), DiffBlob {
-                name: parent_path.file_name().unwrap().to_str().unwrap().to_string(),
-                hash,
-                blob_type: DiffBlobType::Directory,
-            });
+        // 5. write the content of the hashes to a file with name of the hash
+        let (dir, name) = split_dir_and_name(&hash);
+        let p = &to_path.as_ref().join(dir);
+        if !p.exists() {
+            fs::create_dir_all(p)?;
         }
+        let p = &p.join(name);
+        if !p.exists() {
+            let mut file = File::create(p)?;
+            for blob in entries.iter() {
+                file.write_all(blob.to_string().as_bytes())?;
+            }
+        }
+        resolved.insert(current_path.clone(), DiffBlob {
+            name: current_path.file_name().unwrap().to_str().unwrap().to_string(),
+            hash,
+            blob_type: DiffBlobType::Directory,
+        });
     }
-    return if let Some(e) = resolved.get(&from_path.as_ref().to_path_buf()) {
-        Ok(e.hash.clone())
-    } else {
-        Err(io::Error::new(io::ErrorKind::Other, "not found"))
-    }
+    resolved.get(&from_path.as_ref().to_path_buf())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "not found"))
+        .map(|e| e.hash.clone())
 }
 
 pub fn create_directory_blob_file_rec<P: AsRef<Path>>(to_path: P, from_path: P) -> io::Result<String> {

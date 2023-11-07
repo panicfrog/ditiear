@@ -19,9 +19,9 @@ fn test_calculate_file_hash() {
 
 #[test]
 fn test_create_directory_blob_file_rec() {
-    match create_directory_blob_file_rec("./tests/asserts_blobs_rec", "./tests/assets" ) {
-        // Ok(h) => assert_eq!("58f7868004bf0343", h),
-        Ok(h) => println!("{}", h),
+    match create_directory_blob_file_rec("./tests/assets_blobs_rec", "./tests/assets" ) {
+        Ok(h) => assert_eq!("58f7868004bf0343", h),
+        // Ok(h) => println!("{}", h),
         Err(e) => panic!("{:?}", e)
     }
 }
@@ -29,8 +29,8 @@ fn test_create_directory_blob_file_rec() {
 #[test]
 fn test_create_directory_blob_file() {
     match create_directory_blob_file("./tests/assets_blobs", "./tests/assets" ) {
-        // Ok(h) => assert_eq!("58f7868004bf0343", h),
-        Ok(h) => println!("{}", h),
+        Ok(h) => assert_eq!("58f7868004bf0343", h),
+        // Ok(h) => println!("{}", h),
         Err(e) => panic!("{:?}", e)
     }
 }
