@@ -1,10 +1,10 @@
+use crate::common::{split_dir_and_name, DiffBlob, DiffBlobType};
 use std::collections::{HashMap, VecDeque};
-use std::fmt::Display;
-use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::hash::Hasher;
-use std::{fs, io};
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::{fs, io};
 use twox_hash::XxHash64;
 
 pub fn calculate_file_hash<P: AsRef<Path>>(path: P) -> io::Result<String> {
@@ -21,39 +21,8 @@ pub fn calculate_file_hash<P: AsRef<Path>>(path: P) -> io::Result<String> {
     Ok(format!("{:x}", hasher.finish()))
 }
 
-fn split_dir_and_name(hash: &str) -> (&str, &str) {
-    // assert hash length is longer than 2
-    let dir = &hash[0..1];
-    let name = &hash[1..];
-    (dir, name)
-}
-
-#[derive(Clone)]
-enum DiffBlobType {
-    Directory,
-    File,
-    Patch
-}
-
-#[derive(Clone)]
-struct DiffBlob {
-    name: String,
-    hash: String,
-    blob_type: DiffBlobType,
-}
-
-impl Display for DiffBlob {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {} {}\n", self.name, self.hash, match self.blob_type {
-            DiffBlobType::Directory => "directory",
-            DiffBlobType::File => "file",
-            DiffBlobType::Patch => "patch",
-        })
-    }
-}
-
 pub fn create_directory_blob_file<P: AsRef<Path>>(to_path: P, from_path: P) -> io::Result<String> {
-   let mut queue: VecDeque<PathBuf> =  VecDeque::new();
+    let mut queue: VecDeque<PathBuf> = VecDeque::new();
     queue.push_back(from_path.as_ref().to_path_buf());
     let mut directories = Vec::new();
     while let Some(p) = queue.pop_front() {
@@ -98,18 +67,30 @@ pub fn create_directory_blob_file<P: AsRef<Path>>(to_path: P, from_path: P) -> i
         }
         entries.sort_by(|a, b| a.hash.cmp(&b.hash));
         let hash = write_directory_blob(&to_path, &mut entries)?;
-        resolved.insert(current_path.clone(), DiffBlob {
-            name: current_path.file_name().unwrap().to_str().unwrap().to_string(),
-            hash,
-            blob_type: DiffBlobType::Directory,
-        });
+        resolved.insert(
+            current_path.clone(),
+            DiffBlob {
+                name: current_path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                hash,
+                blob_type: DiffBlobType::Directory,
+            },
+        );
     }
-    resolved.get(&from_path.as_ref().to_path_buf())
+    resolved
+        .get(&from_path.as_ref().to_path_buf())
         .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "not found"))
         .map(|e| e.hash.clone())
 }
 
-pub fn create_directory_blob_file_rec<P: AsRef<Path>>(to_path: P, from_path: P) -> io::Result<String> {
+pub fn create_directory_blob_file_rec<P: AsRef<Path>>(
+    to_path: P,
+    from_path: P,
+) -> io::Result<String> {
     // 1. read directory info, if not a directory return error
     let dir = std::fs::read_dir(from_path)?;
 
@@ -144,7 +125,10 @@ pub fn create_directory_blob_file_rec<P: AsRef<Path>>(to_path: P, from_path: P) 
 }
 
 #[inline]
-fn write_directory_blob<P: AsRef<Path>>(to_path: &P, blobs: &mut Vec<DiffBlob>) -> io::Result<String> {
+fn write_directory_blob<P: AsRef<Path>>(
+    to_path: &P,
+    blobs: &mut Vec<DiffBlob>,
+) -> io::Result<String> {
     let mut hasher = XxHash64::default();
     for blob in blobs.iter() {
         hasher.write(blob.to_string().as_bytes());
@@ -168,7 +152,11 @@ fn write_directory_blob<P: AsRef<Path>>(to_path: &P, blobs: &mut Vec<DiffBlob>) 
 }
 
 #[inline]
-fn write_file_blob<P: AsRef<Path>>(to_path: &P, entries: &mut Vec<DiffBlob>, path: &PathBuf) -> io::Result<()> {
+fn write_file_blob<P: AsRef<Path>>(
+    to_path: &P,
+    entries: &mut Vec<DiffBlob>,
+    path: &PathBuf,
+) -> io::Result<()> {
     let hash = calculate_file_hash(&path)?;
     let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
     let (dir, name) = split_dir_and_name(&hash);
