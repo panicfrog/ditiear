@@ -65,10 +65,11 @@ impl FromStr for DiffBlob {
     type Err = DeserializeError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        if s.len() < 6 {
+        let len = s.len();
+        if len < 6 {
             return Err(DeserializeError::InvalidLength);
         }
-        let (len_part, s) = s.split_at(6);
+        let (s, len_part) = s.split_at(len - 6);
         let (name_length, hash_length, type_length) = (
             usize::from_str_radix(&len_part[0..2], 16)
                 .map_err(|_| DeserializeError::InvalidNameLengthInfo)?,
@@ -77,7 +78,7 @@ impl FromStr for DiffBlob {
             usize::from_str_radix(&len_part[4..6], 16)
                 .map_err(|_| DeserializeError::InvalidTypeLengthInfo)?,
         );
-        if s.len() < name_length + hash_length + type_length + 3 {
+        if len < name_length + hash_length + type_length + 3 {
             return Err(DeserializeError::InvalidTotalLength);
         }
         let (name, rest) = s.split_at(name_length);
@@ -93,5 +94,29 @@ impl FromStr for DiffBlob {
             hash: hash.to_string(),
             blob_type,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diff_blob() {
+        let blob = DiffBlob {
+            name: "name".to_string(),
+            hash: "hash".to_string(),
+            blob_type: DiffBlobType::Directory,
+        };
+        let s = blob.to_string();
+        assert_eq!(s, "name hash directory 040409\n");
+        let blob1 = DiffBlob::from_str(&s).unwrap();
+        let blob = DiffBlob {
+            name: "name".to_string(),
+            hash: "hash".to_string(),
+            blob_type: DiffBlobType::File,
+        };
+        let s = blob.to_string();
+        assert_eq!(s, "name hash file 040404\n");
     }
 }

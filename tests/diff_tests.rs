@@ -28,15 +28,33 @@ fn test_calculate_file_hash() {
 #[test]
 fn test_create_directory_blob_file_rec() {
     match create_directory_blob_file_rec("./tests/assets_blobs_rec", "./tests/assets") {
-        Ok(h) => assert_eq!("58f7868004bf0343", h),
+        Ok(h) => assert_eq!("2538abd6c50fd924", h),
         Err(e) => panic!("{:?}", e),
     }
 }
 
 #[test]
 fn test_create_directory_blob_file() {
-    match create_directory_blob_file("./tests/assets_blobs", "./tests/assets") {
-        Ok(h) => assert_eq!("58f7868004bf0343", h),
+    match create_directory_blob_file("./tests/assets_blobs2", "./tests/assets") {
+        Ok(h) => assert_eq!("2538abd6c50fd924", h),
+        // Ok(h) => println!("{}", h),
+        Err(e) => panic!("{:?}", e),
+    }
+}
+
+#[test]
+fn test_create_directory_blob_file2() {
+    match create_directory_blob_file("./tests/assets_blobs2", "./tests/assets2") {
+        Ok(h) => assert_eq!("8b15ce070738c8ef", h),
+        // Ok(h) => println!("{}", h),
+        Err(e) => panic!("{:?}", e),
+    }
+}
+
+#[test]
+fn test_compare_blob_files() {
+    match compare_blob_files("2538abd6c50fd924", "8b15ce070738c8ef", "./tests/assets_blobs2") {
+        Ok(h) => println!("{:?}", h),
         // Ok(h) => println!("{}", h),
         Err(e) => panic!("{:?}", e),
     }

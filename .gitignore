@@ -158,6 +158,7 @@ Cargo.lock
 .ionide
 
 ### tests ###
+tests/assets*
 tests/assets
 tests/assets_blobs_rec
 tests/assets_blobs

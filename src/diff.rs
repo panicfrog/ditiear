@@ -72,12 +72,14 @@ pub fn calculate_binary_diff(old: &[u8], new: &[u8]) -> Vec<Patch> {
         .collect()
 }
 
-enum DiffFileType {
+#[derive(Debug)]
+pub enum DiffFileType {
     Directory(String),
     File(String),
 }
 
-enum DiffCollectionType {
+#[derive(Debug)]
+pub enum DiffCollectionType {
     Add(DiffFileType),
     Delete(DiffFileType),
     Modify {
@@ -101,7 +103,7 @@ impl DiffBlob {
     }
 }
 
-fn compare_blob_files<P: AsRef<Path>>(
+pub fn compare_blob_files<P: AsRef<Path>>(
     old_hash: &str,
     new_hash: &str,
     base: P,
