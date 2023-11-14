@@ -65,7 +65,7 @@ pub fn create_directory_blob_file<P: AsRef<Path>>(to_path: P, from_path: P) -> i
         if entries.is_empty() {
             continue;
         }
-        entries.sort_by(|a, b| a.hash.cmp(&b.hash));
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
         let hash = write_directory_blob(&to_path, &mut entries)?;
         resolved.insert(
             current_path.clone(),
@@ -118,7 +118,7 @@ pub fn create_directory_blob_file_rec<P: AsRef<Path>>(
     }
 
     // 3. get all file hashes and sort them by hash
-    blobs.sort_by(|a, b| a.hash.cmp(&b.hash));
+    blobs.sort_by(|a, b| a.name.cmp(&b.name));
 
     // 4. calculate hash for all file hashes combined
     write_directory_blob(&to_path, &mut blobs)

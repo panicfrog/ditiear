@@ -127,7 +127,7 @@ pub fn compare_blob_files<P: AsRef<Path>>(
         let mut new_blobs = HashMap::new();
         for line in read_to_string(new_file)?.lines() {
             let blob = DiffBlob::from_str(line)?;
-            new_blobs.insert(blob.name.clone(), blob);
+            new_blobs.insert(blob.unique_name(), blob);
         }
         if old == new {
             continue;
