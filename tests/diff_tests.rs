@@ -1,4 +1,4 @@
-use rcodepush::prelude::*;
+use ditiear::prelude::*;
 
 #[test]
 fn test_calculate_binary_diff() {
