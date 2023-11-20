@@ -181,11 +181,11 @@ mod tests {
             let binary_blob = blob.into_binary();
             blobs.push(binary_blob);
         }
-        let blobStore = BinaryDiffBlobStore { blobs };
-        let buf = to_vec(&blobStore).unwrap();
-        let mut blobStore2 = from_bytes::<BinaryDiffBlobStore>(&buf).unwrap();
-        assert_eq!(blobStore2.blobs.len(), 100);
-        let a = blobStore2.blobs.pop().unwrap();
+        let blob_store = BinaryDiffBlobStore { blobs };
+        let buf = to_vec(&blob_store).unwrap();
+        let mut blob_store2 = from_bytes::<BinaryDiffBlobStore>(&buf).unwrap();
+        assert_eq!(blob_store2.blobs.len(), 100);
+        let a = blob_store2.blobs.pop().unwrap();
         assert_eq!(a.name, "name99");
         println!("{:?}, last hash: {}", buf.len(), a.hash);
     }
