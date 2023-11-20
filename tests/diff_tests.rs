@@ -53,7 +53,11 @@ fn test_create_directory_blob_file2() {
 
 #[test]
 fn test_compare_blob_files() {
-    match compare_blob_files("f38c99d310c0a77a", "fa3db2d8a6bdbe07", "./tests/assets_blobs2") {
+    match compare_blob_files(
+        "f38c99d310c0a77a",
+        "fa3db2d8a6bdbe07",
+        "./tests/assets_blobs2",
+    ) {
         Ok(h) => println!("{:?}", h),
         // Ok(h) => println!("{}", h),
         Err(e) => panic!("{:?}", e),

@@ -1,3 +1,7 @@
+#[cfg(feature = "binaryBlob")]
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "binaryBlob")]
+use serde_columnar::{columnar, from_bytes, to_vec};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -35,6 +39,49 @@ pub struct DiffBlob {
     pub(crate) name: String,
     pub(crate) hash: String,
     pub(crate) blob_type: DiffBlobType,
+}
+
+#[cfg(feature = "binaryBlob")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[columnar(vec, ser, de)]
+pub struct BinaryDiffBlob {
+    #[columnar(strategy = "Rle")]
+    pub name: String,
+    #[columnar(strategy = "Rle")]
+    pub(crate) hash: String,
+    #[columnar(strategy = "Rle")]
+    pub(crate) name_len: u8,
+    #[columnar(strategy = "Rle")]
+    pub(crate) hash_len: u8,
+    #[columnar(strategy = "Rle")]
+    pub(crate) blob_type_len: u8,
+}
+
+#[cfg(feature = "binaryBlob")]
+#[derive(Debug)]
+#[columnar(vec, ser, de)]
+pub struct BinaryDiffBlobStore {
+    #[columnar(class = "vec")]
+    pub blobs: Vec<BinaryDiffBlob>,
+}
+
+#[cfg(feature = "binaryBlob")]
+impl DiffBlob {
+    fn into_binary(self) -> BinaryDiffBlob {
+        let name_len = self.name.len();
+        let hash_len = self.hash.len();
+        let blob_type_len = self.blob_type.to_string().len();
+        assert!(name_len < 256);
+        assert!(hash_len < 256);
+        assert!(blob_type_len < 256);
+        BinaryDiffBlob {
+            name: self.name,
+            hash: self.hash,
+            name_len: name_len as u8,
+            hash_len: hash_len as u8,
+            blob_type_len: blob_type_len as u8,
+        }
+    }
 }
 
 impl Display for DiffBlob {
@@ -110,7 +157,7 @@ mod tests {
         };
         let s = blob.to_string();
         assert_eq!(s, "name hash directory 040409\n");
-        let blob1 = DiffBlob::from_str(&s).unwrap();
+        let _ = DiffBlob::from_str(&s).unwrap();
         let blob = DiffBlob {
             name: "name".to_string(),
             hash: "hash".to_string(),
@@ -118,5 +165,27 @@ mod tests {
         };
         let s = blob.to_string();
         assert_eq!(s, "name hash file 040404\n");
+    }
+
+    #[cfg(feature = "binaryBlob")]
+    #[test]
+    fn test_binary_diff_blob() {
+        let mut blobs = vec![];
+        for i in 0..100 {
+            let blob = DiffBlob {
+                name: format!("name{}", i),
+                hash: format!("hash{}", i),
+                blob_type: DiffBlobType::Directory,
+            };
+            let binary_blob = blob.into_binary();
+            blobs.push(binary_blob);
+        }
+        let blobStore = BinaryDiffBlobStore { blobs };
+        let buf = to_vec(&blobStore).unwrap();
+        let mut blobStore2 = from_bytes::<BinaryDiffBlobStore>(&buf).unwrap();
+        assert_eq!(blobStore2.blobs.len(), 100);
+        let a = blobStore2.blobs.pop().unwrap();
+        assert_eq!(a.name, "name99");
+        println!("{:?}, last hash: {}", buf.len(), a.hash);
     }
 }
