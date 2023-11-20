@@ -68,15 +68,16 @@ pub struct BinaryDiffBlobStore {
 #[cfg(feature = "binaryBlob")]
 impl DiffBlob {
     fn into_binary(self) -> BinaryDiffBlob {
-        let name_len = self.name.len();
-        let hash_len = self.hash.len();
-        let blob_type_len = self.blob_type.to_string().len();
+        let DiffBlob { name, hash, blob_type } = self;
+        let name_len = name.len();
+        let hash_len = hash.len();
+        let blob_type_len = blob_type.to_string().len();
         assert!(name_len < 256);
         assert!(hash_len < 256);
         assert!(blob_type_len < 256);
         BinaryDiffBlob {
-            name: self.name,
-            hash: self.hash,
+            name,
+            hash,
             name_len: name_len as u8,
             hash_len: hash_len as u8,
             blob_type_len: blob_type_len as u8,
