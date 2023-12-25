@@ -3,7 +3,7 @@ use crate::diff::DiffCollectionType::Modify;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use similar::{capture_diff_slices, Algorithm, DiffOp};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::read_to_string;
 use std::path::Path;
 use std::str::FromStr;
@@ -106,18 +106,60 @@ pub fn calculate_binary_diff(old: Bytes, new: Bytes) -> Vec<Patch> {
 
 #[derive(Debug)]
 pub enum DiffFileType {
-    Directory(String),
-    File(String),
+    Directory,
+    File,
 }
 
 #[derive(Debug)]
 pub enum DiffCollectionType {
-    Add(DiffFileType),
-    Delete(DiffFileType),
-    Modify {
-        old: DiffFileType,
-        new: DiffFileType,
+    Add {
+        r#type: DiffFileType,
+        value: String,
     },
+    Delete {
+        r#type: DiffFileType,
+        value: String,
+    },
+    Modify {
+        r#type: DiffFileType,
+        old: String,
+        new: String,
+    },
+}
+
+impl DiffCollectionType {
+    fn movement_hash(&self) -> Option<String> {
+        match self {
+            Self::Add { value, .. } | Self::Delete { value, .. } => Some(value.clone()),
+            _ => None,
+        }
+    }
+    // fn is_file(&self) -> bool {
+    //     match self {
+    //         Self::Add { r#type, .. }
+    //         | Self::Delete { r#type, .. }
+    //         | Self::Modify { r#type, .. } => {
+    //             if let DiffFileType::File = r#type {
+    //                 true
+    //             } else {
+    //                 false
+    //             }
+    //         }
+    //     }
+    // }
+    fn is_dir(&self) -> bool {
+        match self {
+            Self::Add { r#type, .. }
+            | Self::Delete { r#type, .. }
+            | Self::Modify { r#type, .. } => {
+                if let DiffFileType::Directory = r#type {
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -143,6 +185,10 @@ pub fn compare_blob_files<P: AsRef<Path>>(
     let mut queue = VecDeque::new();
     queue.push_front((old_hash.to_string(), new_hash.to_string()));
     let mut result = vec![];
+    // mark all added files
+    let mut add_set = HashSet::new();
+    // mark all deleted files
+    let mut delete_set = HashSet::new();
     // traverse sub folders using BSF
     while let Some((old, new)) = queue.pop_back() {
         // 1. read old and new blob files
@@ -165,8 +211,9 @@ pub fn compare_blob_files<P: AsRef<Path>>(
             continue;
         }
         result.push(Modify {
-            old: DiffFileType::Directory(old.to_string()),
-            new: DiffFileType::Directory(new.to_string()),
+            r#type: DiffFileType::Directory,
+            old: old.to_string(),
+            new: new.to_string(),
         });
         // 2. compare two blob files and find differences
         for b in old_blobs.values() {
@@ -176,25 +223,33 @@ pub fn compare_blob_files<P: AsRef<Path>>(
                 }
                 if let DiffBlobType::File = b.blob_type {
                     result.push(Modify {
-                        old: DiffFileType::File(b.hash.clone()),
-                        new: DiffFileType::File(new_b.hash.clone()),
+                        r#type: DiffFileType::File,
+                        old: b.hash.clone(),
+                        new: new_b.hash.clone(),
                     });
                 } else {
                     queue.push_front((b.hash.clone(), new_b.hash.clone()));
                 }
             } else {
                 if let DiffBlobType::File = b.blob_type {
-                    result.push(DiffCollectionType::Delete(DiffFileType::File(
-                        b.hash.clone(),
-                    )));
+                    delete_set.insert(b.hash.clone());
+                    result.push(DiffCollectionType::Delete {
+                        r#type: DiffFileType::File,
+                        value: b.hash.clone(),
+                    });
                 } else {
-                    result.push(DiffCollectionType::Delete(DiffFileType::Directory(
-                        b.hash.clone(),
-                    )));
-                    let subs = walk_dir(
+                    result.push(DiffCollectionType::Delete {
+                        r#type: DiffFileType::Directory,
+                        value: b.hash.clone(),
+                    });
+                    let (subs, set) = walk_dir(
                         base.as_ref(),
-                        DiffCollectionType::Delete(DiffFileType::Directory(b.hash.clone())),
+                        DiffCollectionType::Delete {
+                            r#type: DiffFileType::Directory,
+                            value: b.hash.clone(),
+                        },
                     )?;
+                    delete_set.extend(set);
                     result.extend(subs);
                 }
             }
@@ -204,31 +259,62 @@ pub fn compare_blob_files<P: AsRef<Path>>(
                 continue;
             }
             if let DiffBlobType::File = b.blob_type {
-                result.push(DiffCollectionType::Add(DiffFileType::File(b.hash.clone())));
+                add_set.insert(b.hash.clone());
+                result.push(DiffCollectionType::Add {
+                    r#type: DiffFileType::File,
+                    value: b.hash.clone(),
+                });
             } else {
-                result.push(DiffCollectionType::Add(DiffFileType::Directory(
-                    b.hash.clone(),
-                )));
-                let subs = walk_dir(
+                result.push(DiffCollectionType::Add {
+                    r#type: DiffFileType::Directory,
+                    value: b.hash.clone(),
+                });
+                let (subs, set) = walk_dir(
                     base.as_ref(),
-                    DiffCollectionType::Add(DiffFileType::Directory(b.hash.clone())),
+                    DiffCollectionType::Add {
+                        r#type: DiffFileType::Directory,
+                        value: b.hash.clone(),
+                    },
                 )?;
+                add_set.extend(set);
                 result.extend(subs);
             }
         }
     }
+    // 3. filter out invalid files
+    // invalid files are files that are both added and deleted
+    let invalid_set: HashSet<_> = add_set.intersection(&delete_set).collect();
+    let result = result
+        .into_iter()
+        .filter(|x| {
+            // filter out both added and deleted files.
+            if x.is_dir() {
+                true
+            } else {
+                if let Some(hash) = x.movement_hash() {
+                    !invalid_set.contains(&hash)
+                } else {
+                    true
+                }
+            }
+        })
+        .collect();
     Ok(result)
 }
 
+/**
+ * walk directory recursively to mark all sub files and directories with specified change type (add or delete), then return a list of DiffCollectionType and a set of hashes of all files.
+ */
 fn walk_dir<P: AsRef<Path>>(
     base: P,
     diff_collection_type: DiffCollectionType,
-) -> Result<Vec<DiffCollectionType>, FileParseError> {
+) -> Result<(Vec<DiffCollectionType>, HashSet<String>), FileParseError> {
     let mut result = vec![];
+    let mut set = HashSet::new();
     let mut stack = vec![];
     let (p, is_add) = match diff_collection_type {
-        DiffCollectionType::Add(DiffFileType::Directory(hash)) => (hash, true),
-        DiffCollectionType::Delete(DiffFileType::Directory(hash)) => (hash, false),
+        DiffCollectionType::Add { value, .. } => (value, true),
+        DiffCollectionType::Delete { value, .. } => (value, false),
         _ => unreachable!("work_dir"),
     };
     stack.push(p);
@@ -236,30 +322,35 @@ fn walk_dir<P: AsRef<Path>>(
         let p = path_from_hash(&hash, base.as_ref());
         let dir_content = fs::read_to_string(&p)?;
         if is_add {
-            result.push(DiffCollectionType::Add(DiffFileType::Directory(
-                hash.clone(),
-            )));
+            result.push(DiffCollectionType::Add {
+                r#type: DiffFileType::Directory,
+                value: hash.clone(),
+            });
         } else {
-            result.push(DiffCollectionType::Delete(DiffFileType::Directory(
-                hash.clone(),
-            )));
+            result.push(DiffCollectionType::Delete {
+                r#type: DiffFileType::Directory,
+                value: hash.clone(),
+            });
         }
         for line in dir_content.lines() {
             let blob = DiffBlob::from_str(line)?;
             if let DiffBlobType::File = blob.blob_type {
+                set.insert(blob.hash.clone());
                 if is_add {
-                    result.push(DiffCollectionType::Add(DiffFileType::File(
-                        blob.hash.clone(),
-                    )));
+                    result.push(DiffCollectionType::Add {
+                        r#type: DiffFileType::File,
+                        value: blob.hash.clone(),
+                    });
                 } else {
-                    result.push(DiffCollectionType::Delete(DiffFileType::File(
-                        blob.hash.clone(),
-                    )));
+                    result.push(DiffCollectionType::Delete {
+                        r#type: DiffFileType::File,
+                        value: blob.hash.clone(),
+                    });
                 }
             } else {
                 stack.push(blob.hash);
             }
         }
     }
-    Ok(result)
+    Ok((result, set))
 }
