@@ -1,5 +1,6 @@
 use crate::common::{path_from_hash, DeserializeError, DiffBlob, DiffBlobType};
 use crate::diff::DiffCollectionType::Modify;
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use similar::{capture_diff_slices, Algorithm, DiffOp};
 use std::collections::{HashMap, VecDeque};
@@ -9,29 +10,60 @@ use std::str::FromStr;
 use std::{fs, io};
 use thiserror::Error;
 
+fn serialize_bytes<S>(bytes: &Bytes, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serde_bytes::serialize(bytes.as_ref(), serializer)
+}
+
+fn deserialize_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let bytes: Vec<u8> = serde_bytes::deserialize(deserializer)?;
+    Ok(Bytes::from(bytes))
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum Patch {
     Add {
         old_index: usize,
         new_index: usize,
-        new_value: Vec<u8>,
+        #[serde(
+            serialize_with = "serialize_bytes",
+            deserialize_with = "deserialize_bytes"
+        )]
+        new_value: Bytes,
     },
     Delete {
         old_index: usize,
         new_index: usize,
-        old_value: Vec<u8>,
+        #[serde(
+            serialize_with = "serialize_bytes",
+            deserialize_with = "deserialize_bytes"
+        )]
+        old_value: Bytes,
     },
     Replace {
         old_index: usize,
         new_index: usize,
-        old_value: Vec<u8>,
-        new_value: Vec<u8>,
+        #[serde(
+            serialize_with = "serialize_bytes",
+            deserialize_with = "deserialize_bytes"
+        )]
+        old_value: Bytes,
+        #[serde(
+            serialize_with = "serialize_bytes",
+            deserialize_with = "deserialize_bytes"
+        )]
+        new_value: Bytes,
     },
 }
 
 #[allow(unreachable_code)]
-pub fn calculate_binary_diff(old: &[u8], new: &[u8]) -> Vec<Patch> {
-    let ops = capture_diff_slices(Algorithm::Myers, old, new);
+pub fn calculate_binary_diff(old: Bytes, new: Bytes) -> Vec<Patch> {
+    let ops = capture_diff_slices(Algorithm::Myers, &old, &new);
     ops.iter()
         .filter(|op| match op {
             DiffOp::Equal { .. } => false,
@@ -45,7 +77,7 @@ pub fn calculate_binary_diff(old: &[u8], new: &[u8]) -> Vec<Patch> {
             } => Patch::Delete {
                 old_index: *old_index,
                 new_index: *new_index,
-                old_value: old[*old_index..*old_index + *old_len].to_vec(),
+                old_value: old.slice(*old_index..*old_index + *old_len),
             },
             DiffOp::Insert {
                 old_index,
@@ -54,7 +86,7 @@ pub fn calculate_binary_diff(old: &[u8], new: &[u8]) -> Vec<Patch> {
             } => Patch::Add {
                 old_index: *old_index,
                 new_index: *new_index,
-                new_value: new[*new_index..*new_index + *new_len].to_vec(),
+                new_value: new.slice(*new_index..*new_index + *new_len),
             },
             DiffOp::Replace {
                 old_index,
@@ -64,8 +96,8 @@ pub fn calculate_binary_diff(old: &[u8], new: &[u8]) -> Vec<Patch> {
             } => Patch::Replace {
                 old_index: *old_index,
                 new_index: *new_index,
-                old_value: old[*old_index..*old_index + *old_len].to_vec(),
-                new_value: new[*new_index..*new_index + *new_len].to_vec(),
+                old_value: old.slice(*old_index..*old_index + *old_len),
+                new_value: new.slice(*new_index..*new_index + *new_len),
             },
             _ => !unreachable!(),
         })

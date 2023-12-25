@@ -2,17 +2,17 @@ use ditiear::prelude::*;
 
 #[test]
 fn test_calculate_binary_diff() {
-    let v1 = vec![1, 2, 3, 4, 5];
-    let v2 = vec![1, 2, 3, 4, 6];
-    let ops = calculate_binary_diff(&v1, &v2);
+    let v1 = bytes::Bytes::from(vec![1, 2, 3, 4, 5]);
+    let v2 = bytes::Bytes::from(vec![1, 2, 3, 4, 6]);
+    let ops = calculate_binary_diff(v1.clone(), v2.clone());
     assert_eq!(ops.len(), 1);
     assert_eq!(
         ops[0],
         Patch::Replace {
             old_index: 4,
             new_index: 4,
-            old_value: vec![5],
-            new_value: vec![6]
+            old_value: v1.slice(4..5),
+            new_value: v2.slice(4..5),
         }
     );
 }
