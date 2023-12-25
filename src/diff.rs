@@ -63,7 +63,7 @@ pub enum Patch {
 
 #[allow(unreachable_code)]
 pub fn calculate_binary_diff(old: Bytes, new: Bytes) -> Vec<Patch> {
-    let ops = capture_diff_slices(Algorithm::Myers, &old, &new);
+    let ops = capture_diff_slices(Algorithm::Myers, old.as_ref(), new.as_ref());
     ops.iter()
         .filter(|op| match op {
             DiffOp::Equal { .. } => false,
