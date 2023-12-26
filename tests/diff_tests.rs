@@ -1,4 +1,9 @@
 use ditiear::prelude::*;
+use std::{
+    io::{Read, Write},
+    path::Path,
+};
+use zip::read::ZipFile;
 
 #[test]
 fn test_calculate_binary_diff() {
@@ -73,4 +78,17 @@ fn test_zip_patch() {
         "./tests/test_assets2_patch.zip",
     )
     .unwrap();
+}
+
+#[test]
+fn test_unpack_patch() {
+    let patchs = unpack_patch("./tests/test_assets2_patch.zip", |buf, name| {
+        let p = Path::new("./tests").join(name);
+        let mut file = std::fs::File::create(p).unwrap();
+        file.write_all(&buf)
+    })
+    .unwrap();
+    for p in patchs {
+        println!("{:?}", p);
+    }
 }

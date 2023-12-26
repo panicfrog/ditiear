@@ -4,8 +4,9 @@ use similar::{capture_diff_slices, Algorithm, DiffOp};
 use std::io::{self, Read, Write};
 use std::{fs, path::Path};
 use thiserror::Error;
+use zip::read::ZipFile;
 use zip::write::{FileOptions, ZipWriter};
-use zip::CompressionMethod;
+use zip::{CompressionMethod, ZipArchive};
 
 use crate::common::DeserializeError;
 use crate::{
@@ -223,4 +224,31 @@ where
     }
     zip.finish()?;
     Ok(())
+}
+
+pub fn unpack_patch<'a, P: AsRef<Path>, F>(
+    patch_path: P,
+    process_file: F,
+) -> Result<Vec<BlobPatch>, ZipFileError>
+where
+    F: Fn(Vec<u8>, &str) -> Result<(), io::Error>,
+{
+    let zip_file = fs::File::open(patch_path)?;
+    let mut archive = ZipArchive::new(zip_file)?;
+
+    let mut patchs = vec![];
+    for i in 0..archive.len() {
+        let mut file: zip::read::ZipFile<'_> = archive.by_index(i)?;
+        if file.name() != "ditiear.patch" {
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf)?;
+            process_file(buf, file.name())?;
+            continue;
+        }
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+        let patch: BlobPatch = bincode::deserialize(&buffer)?;
+        patchs.push(patch);
+    }
+    Ok(patchs)
 }
