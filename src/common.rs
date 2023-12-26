@@ -19,7 +19,7 @@ pub(crate) fn path_from_hash<P: AsRef<Path>>(hash: &str, base: P) -> PathBuf {
     base.as_ref().join(dir).join(name)
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DiffBlobType {
     Directory,
     File,
@@ -68,7 +68,11 @@ pub struct BinaryDiffBlobStore {
 #[cfg(feature = "binaryBlob")]
 impl DiffBlob {
     fn into_binary(self) -> BinaryDiffBlob {
-        let DiffBlob { name, hash, blob_type } = self;
+        let DiffBlob {
+            name,
+            hash,
+            blob_type,
+        } = self;
         let name_len = name.len();
         let hash_len = hash.len();
         let blob_type_len = blob_type.to_string().len();

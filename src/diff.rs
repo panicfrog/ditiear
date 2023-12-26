@@ -1,6 +1,7 @@
 use crate::common::{path_from_hash, DeserializeError, DiffBlob, DiffBlobType};
 use crate::diff::DiffCollectionType::Modify;
 use bytes::Bytes;
+use core::fmt;
 use serde::{Deserialize, Serialize};
 use similar::{capture_diff_slices, Algorithm, DiffOp};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -110,6 +111,19 @@ pub enum DiffFileType {
     File,
 }
 
+impl fmt::Display for DiffFileType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                DiffFileType::Directory => "Directory",
+                DiffFileType::File => "File",
+            }
+        )
+    }
+}
+
 #[derive(Debug)]
 pub enum DiffCollectionType {
     Add {
@@ -128,12 +142,16 @@ pub enum DiffCollectionType {
 }
 
 impl DiffCollectionType {
-    fn movement_hash(&self) -> Option<String> {
+    #[inline]
+    fn movement_unique_hash(&self) -> Option<String> {
         match self {
-            Self::Add { value, .. } | Self::Delete { value, .. } => Some(value.clone()),
+            Self::Add { value, r#type } | Self::Delete { value, r#type } => {
+                Some(format!("{}{}", value, r#type))
+            }
             _ => None,
         }
     }
+
     // fn is_file(&self) -> bool {
     //     match self {
     //         Self::Add { r#type, .. }
@@ -147,19 +165,19 @@ impl DiffCollectionType {
     //         }
     //     }
     // }
-    fn is_dir(&self) -> bool {
-        match self {
-            Self::Add { r#type, .. }
-            | Self::Delete { r#type, .. }
-            | Self::Modify { r#type, .. } => {
-                if let DiffFileType::Directory = r#type {
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-    }
+    // fn is_dir(&self) -> bool {
+    //     match self {
+    //         Self::Add { r#type, .. }
+    //         | Self::Delete { r#type, .. }
+    //         | Self::Modify { r#type, .. } => {
+    //             if let DiffFileType::Directory = r#type {
+    //                 true
+    //             } else {
+    //                 false
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 #[derive(Error, Debug)]
@@ -218,9 +236,11 @@ pub fn compare_blob_files<P: AsRef<Path>>(
         // 2. compare two blob files and find differences
         for b in old_blobs.values() {
             if let Some(new_b) = new_blobs.get(&b.unique_name()) {
+                // if two blobs are the same, skip
                 if b.hash == new_b.hash {
                     continue;
                 }
+                // if two blobs are different and has the same name and type, mark as modified
                 if let DiffBlobType::File = b.blob_type {
                     result.push(Modify {
                         r#type: DiffFileType::File,
@@ -231,17 +251,16 @@ pub fn compare_blob_files<P: AsRef<Path>>(
                     queue.push_front((b.hash.clone(), new_b.hash.clone()));
                 }
             } else {
+                // if a blob is in old but not in new, mark as deleted
                 if let DiffBlobType::File = b.blob_type {
-                    delete_set.insert(b.hash.clone());
-                    result.push(DiffCollectionType::Delete {
+                    let diff_item = DiffCollectionType::Delete {
                         r#type: DiffFileType::File,
                         value: b.hash.clone(),
-                    });
+                    };
+                    // it is delete, so unwrap is safe.
+                    delete_set.insert(diff_item.movement_unique_hash().unwrap());
+                    result.push(diff_item);
                 } else {
-                    result.push(DiffCollectionType::Delete {
-                        r#type: DiffFileType::Directory,
-                        value: b.hash.clone(),
-                    });
                     let (subs, set) = walk_dir(
                         base.as_ref(),
                         DiffCollectionType::Delete {
@@ -254,21 +273,20 @@ pub fn compare_blob_files<P: AsRef<Path>>(
                 }
             }
         }
+        // modified and deleted files are already marked, so we only need to mark added files
         for b in new_blobs.values() {
             if old_blobs.get(&b.unique_name()).is_some() {
                 continue;
             }
             if let DiffBlobType::File = b.blob_type {
-                add_set.insert(b.hash.clone());
-                result.push(DiffCollectionType::Add {
+                let diff_item = DiffCollectionType::Add {
                     r#type: DiffFileType::File,
                     value: b.hash.clone(),
-                });
+                };
+                // it is add, so unwrap is safe.
+                add_set.insert(diff_item.movement_unique_hash().unwrap());
+                result.push(diff_item);
             } else {
-                result.push(DiffCollectionType::Add {
-                    r#type: DiffFileType::Directory,
-                    value: b.hash.clone(),
-                });
                 let (subs, set) = walk_dir(
                     base.as_ref(),
                     DiffCollectionType::Add {
@@ -288,14 +306,10 @@ pub fn compare_blob_files<P: AsRef<Path>>(
         .into_iter()
         .filter(|x| {
             // filter out both added and deleted files.
-            if x.is_dir() {
-                true
+            if let Some(hash) = x.movement_unique_hash() {
+                !invalid_set.contains(&hash)
             } else {
-                if let Some(hash) = x.movement_hash() {
-                    !invalid_set.contains(&hash)
-                } else {
-                    true
-                }
+                true
             }
         })
         .collect();
@@ -321,32 +335,37 @@ fn walk_dir<P: AsRef<Path>>(
     while let Some(hash) = stack.pop() {
         let p = path_from_hash(&hash, base.as_ref());
         let dir_content = fs::read_to_string(&p)?;
-        if is_add {
-            result.push(DiffCollectionType::Add {
+        let diff_item = if is_add {
+            DiffCollectionType::Add {
                 r#type: DiffFileType::Directory,
                 value: hash.clone(),
-            });
+            }
         } else {
-            result.push(DiffCollectionType::Delete {
+            DiffCollectionType::Delete {
                 r#type: DiffFileType::Directory,
                 value: hash.clone(),
-            });
-        }
+            }
+        };
+        // only add and delete will marked, so unwrap is safe.
+        set.insert(diff_item.movement_unique_hash().unwrap());
+        result.push(diff_item);
         for line in dir_content.lines() {
             let blob = DiffBlob::from_str(line)?;
             if let DiffBlobType::File = blob.blob_type {
-                set.insert(blob.hash.clone());
-                if is_add {
-                    result.push(DiffCollectionType::Add {
+                let diff_file_item = if is_add {
+                    DiffCollectionType::Add {
                         r#type: DiffFileType::File,
                         value: blob.hash.clone(),
-                    });
+                    }
                 } else {
-                    result.push(DiffCollectionType::Delete {
+                    DiffCollectionType::Delete {
                         r#type: DiffFileType::File,
                         value: blob.hash.clone(),
-                    });
-                }
+                    }
+                };
+                // only add and delete will marked, so unwrap is safe.
+                set.insert(diff_file_item.movement_unique_hash().unwrap());
+                result.push(diff_file_item);
             } else {
                 stack.push(blob.hash);
             }
