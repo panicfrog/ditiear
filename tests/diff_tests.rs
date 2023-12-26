@@ -8,7 +8,7 @@ fn test_calculate_binary_diff() {
     assert_eq!(ops.len(), 1);
     assert_eq!(
         ops[0],
-        Patch::Replace {
+        BlobPatch::Replace {
             old_index: 4,
             new_index: 4,
             old_value: v1.slice(4..5),
@@ -55,7 +55,7 @@ fn test_create_directory_blob_file2() {
 fn test_compare_blob_files() {
     match compare_blob_files(
         "1da38600711c8713",
-        "90b8ab5339628e4",
+        "c408a3680edbbf17",
         "./tests/assets_blobs2",
     ) {
         Ok(h) => println!("{:?}", h),
