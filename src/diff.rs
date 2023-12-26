@@ -1,12 +1,11 @@
-use crate::common::{path_from_hash, DeserializeError, DiffBlob, DiffBlobType};
+use crate::common::{path_from_hash, DiffBlob, DiffBlobType, FileParseError};
 use crate::diff::DiffCollectionType::Modify;
 use core::fmt;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
 use std::io::read_to_string;
 use std::path::Path;
 use std::str::FromStr;
-use std::{fs, io};
-use thiserror::Error;
 
 #[derive(Debug)]
 pub enum DiffFileType {
@@ -54,41 +53,6 @@ impl DiffCollectionType {
             _ => None,
         }
     }
-
-    // fn is_file(&self) -> bool {
-    //     match self {
-    //         Self::Add { r#type, .. }
-    //         | Self::Delete { r#type, .. }
-    //         | Self::Modify { r#type, .. } => {
-    //             if let DiffFileType::File = r#type {
-    //                 true
-    //             } else {
-    //                 false
-    //             }
-    //         }
-    //     }
-    // }
-    // fn is_dir(&self) -> bool {
-    //     match self {
-    //         Self::Add { r#type, .. }
-    //         | Self::Delete { r#type, .. }
-    //         | Self::Modify { r#type, .. } => {
-    //             if let DiffFileType::Directory = r#type {
-    //                 true
-    //             } else {
-    //                 false
-    //             }
-    //         }
-    //     }
-    // }
-}
-
-#[derive(Error, Debug)]
-pub enum FileParseError {
-    #[error("I/O error")]
-    Io(#[from] io::Error),
-    #[error("Parse error")]
-    Parse(#[from] DeserializeError),
 }
 
 impl DiffBlob {

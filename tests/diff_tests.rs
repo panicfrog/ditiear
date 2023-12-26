@@ -8,7 +8,7 @@ fn test_calculate_binary_diff() {
     assert_eq!(ops.len(), 1);
     assert_eq!(
         ops[0],
-        BlobPatch::Replace {
+        BytesPatch::Replace {
             old_index: 4,
             new_index: 4,
             old_value: v1.slice(4..5),
@@ -62,4 +62,15 @@ fn test_compare_blob_files() {
         // Ok(h) => println!("{}", h),
         Err(e) => panic!("{:?}", e),
     }
+}
+
+#[test]
+fn test_zip_patch() {
+    create_diff_patch(
+        "1da38600711c8713",
+        "c408a3680edbbf17",
+        "./tests/assets_blobs2",
+        "./tests/test_assets2_patch.zip",
+    )
+    .unwrap();
 }

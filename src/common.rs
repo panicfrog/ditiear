@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "binaryBlob")]
 use serde_columnar::{columnar, from_bytes, to_vec};
 use std::fmt::Display;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
@@ -111,6 +112,14 @@ pub enum DeserializeError {
     InvalidTypeLengthInfo,
     InvalidTotalLength,
     InvalidType,
+}
+
+#[derive(Error, Debug)]
+pub enum FileParseError {
+    #[error("I/O error")]
+    Io(#[from] io::Error),
+    #[error("Parse error")]
+    Parse(#[from] DeserializeError),
 }
 
 impl FromStr for DiffBlob {
