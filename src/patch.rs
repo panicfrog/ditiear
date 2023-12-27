@@ -4,7 +4,6 @@ use similar::{capture_diff_slices, Algorithm, DiffOp};
 use std::io::{self, Read, Write};
 use std::{fs, path::Path};
 use thiserror::Error;
-use zip::read::ZipFile;
 use zip::write::{FileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
 
@@ -251,4 +250,52 @@ where
         patchs.push(patch);
     }
     Ok(patchs)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_blob_patch() {
+        use crate::patch::BlobPatch;
+        use crate::patch::BytesPatch;
+        use bytes::Bytes;
+        let old = Bytes::from("hello world");
+        let new = Bytes::from("hello world!");
+        let ops = super::calculate_binary_diff(old, new);
+        assert_eq!(
+            ops,
+            vec![BytesPatch::Add {
+                old_index: 11,
+                new_index: 11,
+                new_value: Bytes::from("!"),
+            }]
+        );
+        let patch = BlobPatch::Replace {
+            old_file: "hello.txt".to_string(),
+            new_file: "hello.txt".to_string(),
+            patch: ops,
+        };
+        let serialized = bincode::serialize(&patch).unwrap();
+        let deserialized: BlobPatch = bincode::deserialize(&serialized).unwrap();
+        match deserialized {
+            BlobPatch::Replace {
+                old_file,
+                new_file,
+                patch,
+            } => {
+                assert_eq!(old_file, "hello.txt");
+                assert_eq!(new_file, "hello.txt");
+                assert_eq!(
+                    patch,
+                    vec![BytesPatch::Add {
+                        old_index: 11,
+                        new_index: 11,
+                        new_value: Bytes::from("!"),
+                    }]
+                );
+            }
+            _ => unreachable!(),
+        }
+        // assert_eq!(patch, deserialized);
+    }
 }
