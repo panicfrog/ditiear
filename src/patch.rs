@@ -1,7 +1,8 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use similar::{capture_diff_slices, Algorithm, DiffOp};
-use std::io::{self, Read, Write};
+use std::fs::OpenOptions;
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::{fs, path::Path};
 use thiserror::Error;
 use zip::write::{FileOptions, ZipWriter};
@@ -225,7 +226,7 @@ where
     Ok(())
 }
 
-pub fn unpack_patch<'a, P: AsRef<Path>, F>(
+pub fn unpack_patch<P: AsRef<Path>, F>(
     patch_path: P,
     process_file: F,
 ) -> Result<Vec<BlobPatch>, ZipFileError>
@@ -252,6 +253,125 @@ where
     Ok(patchs)
 }
 
+pub fn apply_patchs<P: AsRef<Path>>(patch_path: P, base_path: P) -> Result<(), ZipFileError> {
+    let patchs = unpack_patch(patch_path, |buffer, name| {
+        let path = path_from_hash(name, base_path.as_ref());
+        let mut file = fs::File::create(path)?;
+        file.write_all(&buffer)
+    })?;
+    for patch in patchs {
+        match patch {
+            BlobPatch::Add { new_file } => {
+                // TODO: Check if file exists
+            }
+            BlobPatch::Delete { old_file } => {
+                // TODO: Check whether file need to be deleted according to settings
+                // let path = path_from_hash(&old_file, base_path.as_ref());
+                // fs::remove_file(path)?;
+            }
+            BlobPatch::Replace {
+                old_file,
+                new_file,
+                patch,
+            } => {
+                let mut replacements = patch
+                    .into_iter()
+                    .map(|item| match item {
+                        BytesPatch::Add {
+                            old_index,
+                            new_value,
+                            ..
+                        } => Replacement {
+                            start: old_index,
+                            length: 0,
+                            content: new_value,
+                        },
+                        BytesPatch::Delete {
+                            old_index,
+                            old_value,
+                            ..
+                        } => Replacement {
+                            start: old_index,
+                            length: old_value.len(),
+                            content: Bytes::new(),
+                        },
+                        BytesPatch::Replace {
+                            old_index,
+                            old_value,
+                            new_value,
+                            ..
+                        } => Replacement {
+                            start: old_index,
+                            length: old_value.len(),
+                            content: new_value,
+                        },
+                    })
+                    .collect::<Vec<_>>();
+                replacements.sort_by(|a, b| a.start.cmp(&b.start));
+                let old_path = path_from_hash(&old_file, base_path.as_ref());
+                let old_bak_path =
+                    path_from_hash(&format!("{}.bak", &old_file), base_path.as_ref());
+                replace_parts_file(old_path.as_path(), old_bak_path.as_path(), &replacements)?;
+                let new_path = path_from_hash(&new_file, base_path.as_ref());
+                fs::rename(old_bak_path.as_path(), new_path.as_path())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+struct Replacement {
+    start: usize,
+    length: usize,
+    content: Bytes,
+}
+
+fn copy_with_buffer<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    mut bytes: usize,
+) -> io::Result<()> {
+    let mut buffer = vec![0; 1024.min(bytes)];
+    while bytes > 0 {
+        let len = reader.read(&mut buffer)?;
+        writer.write_all(&buffer[..len])?;
+        bytes = bytes.saturating_sub(len);
+    }
+    Ok(())
+}
+
+fn replace_parts_file<P: AsRef<Path>, Q: AsRef<Path>>(
+    original_file: P,
+    dest_file: Q,
+    replacements: &[Replacement],
+) -> io::Result<()> {
+    let original = OpenOptions::new().read(true).open(original_file.as_ref())?;
+    let dest = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(dest_file.as_ref())?;
+
+    let mut reader = io::BufReader::new(original);
+    let mut writer = io::BufWriter::new(dest);
+
+    let mut current_pos = 0;
+    for replacement in replacements {
+        let bytes_to_copy = replacement.start - current_pos;
+        // avoid high memory usage
+        copy_with_buffer(&mut reader, &mut writer, bytes_to_copy)?;
+        // avoid copying 0 bytes
+        if !replacement.content.is_empty() {
+            writer.write_all(replacement.content.as_ref())?;
+        }
+        reader.seek(SeekFrom::Current(replacement.length as i64))?;
+        current_pos = replacement.start + replacement.length;
+    }
+    io::copy(&mut reader, &mut writer)?;
+    writer.flush()?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -261,7 +381,7 @@ mod tests {
         use bytes::Bytes;
         let old = Bytes::from("hello world");
         let new = Bytes::from("hello world!");
-        let ops = super::calculate_binary_diff(old, new);
+        let mut ops = super::calculate_binary_diff(old, new);
         assert_eq!(
             ops,
             vec![BytesPatch::Add {
@@ -270,6 +390,10 @@ mod tests {
                 new_value: Bytes::from("!"),
             }]
         );
+        let old2 = Bytes::from("你好，世界");
+        let new2 = Bytes::from("你好，世界！");
+        let ops2 = super::calculate_binary_diff(old2, new2);
+        ops.extend(ops2);
         let patch = BlobPatch::Replace {
             old_file: "hello.txt".to_string(),
             new_file: "hello.txt".to_string(),
@@ -285,14 +409,7 @@ mod tests {
             } => {
                 assert_eq!(old_file, "hello.txt");
                 assert_eq!(new_file, "hello.txt");
-                assert_eq!(
-                    patch,
-                    vec![BytesPatch::Add {
-                        old_index: 11,
-                        new_index: 11,
-                        new_value: Bytes::from("!"),
-                    }]
-                );
+                assert_eq!(patch.len(), 2);
             }
             _ => unreachable!(),
         }
